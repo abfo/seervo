@@ -3,3 +3,4 @@ client/.env
 .vs/
 bin/
 obj/
+/server/server/memories.json

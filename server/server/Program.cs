@@ -2,7 +2,6 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Diagnostics;
 using System.Text;
-using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +17,18 @@ builder.Services.AddHttpClient("OpenAI", client =>
 });
 
 var app = builder.Build();
+
+// Load system instructions from markdown file.
+var systemInstructions = await File.ReadAllTextAsync(Path.Combine(app.Environment.ContentRootPath, "instructions.md"));
+
+// Load persisted memories.
+var memoriesPath = Path.Combine(app.Environment.ContentRootPath, "memories.json");
+var memories = new List<string>();
+if (File.Exists(memoriesPath))
+{
+    var memoriesJson = await File.ReadAllTextAsync(memoriesPath);
+    memories = JsonConvert.DeserializeObject<List<string>>(memoriesJson) ?? [];
+}
 
 // Configure the HTTP request pipeline.
 
@@ -40,9 +51,17 @@ app.MapPost("/next", async (HttpRequest request, IHttpClientFactory httpClientFa
 
     var base64Image = Convert.ToBase64String(ms.ToArray());
 
+    // Build system prompt with current memories appended
+    var prompt = systemInstructions;
+    if (memories.Count > 0)
+    {
+        var memoryList = string.Join("\n", memories.Select(m => $"- {m}"));
+        prompt += "\n\n" + memoryList;
+    }
+
     var requestBody = new
     {
-        model = "gpt-5.2",
+        model = "gpt-5.4",
         messages = new[]
         {
             new
@@ -50,21 +69,7 @@ app.MapPost("/next", async (HttpRequest request, IHttpClientFactory httpClientFa
                 role = "system",
                 content = new object[]
                 {
-                    new { type = "text", text = @$"You are controlling a robot. 
-
-You will be sent an image which is what the robot can currently see. In response you must set the color of four LEDs and a duration in seconds to show that
-pattern of colors. Use your best judgement, but know that the LEDs are very bright, so 30 is around the maximum you should set for each color channel unless
-there is an emergency. Just respond with JSON ready to send back to the robot in the following format:
-
-{{
-  ""colors"": [
-    {{ ""r"": 30, ""g"": 10, ""b"": 5 }},
-    {{ ""r"": 25, ""g"": 10, ""b"": 0 }},
-    {{ ""r"": 15, ""g"": 15, ""b"": 30 }},
-    {{ ""r"": 30, ""g"": 0, ""b"": 15 }}
-  ],
-  ""duration"": 2
-}}" }
+                    new { type = "text", text = prompt }
                 }
             },
             new
@@ -104,6 +109,26 @@ there is an emergency. Just respond with JSON ready to send back to the robot in
         }
 
         var jsonResponse = JObject.Parse(responseText);
+
+        // Extract and persist memory if present
+        var memoryToken = jsonResponse["memory"];
+        if (memoryToken != null)
+        {
+            var memory = memoryToken.Value<string>();
+            if (!string.IsNullOrWhiteSpace(memory))
+            {
+                memories.Add(memory);
+                if (memories.Count > 20)
+                {
+                    // Compact: summarize the first two memories into a rolling summary
+                    var summary = await CompactMemoriesAsync(httpClient, memories[0], memories[1]);
+                    memories.RemoveAt(0); // remove old summary
+                    memories[0] = summary; // replace second entry with new combined summary
+                }
+                await File.WriteAllTextAsync(memoriesPath, JsonConvert.SerializeObject(memories, Formatting.Indented));
+            }
+        }
+
         return Results.Content(jsonResponse.ToString(Formatting.None), "application/json");
     }
     else
@@ -114,10 +139,38 @@ there is an emergency. Just respond with JSON ready to send back to the robot in
 
 app.Run();
 
-internal record RgbColor(int R, int G, int B);
-internal record NextResponse(RgbColor[] Colors, int Duration);
+static async Task<string> CompactMemoriesAsync(HttpClient httpClient, string storySoFar, string newMemory)
+{
+    var requestBody = new
+    {
+        model = "gpt-5.4",
+        messages = new[]
+        {
+            new
+            {
+                role = "system",
+                content = "You are a memory compactor for a robot controller. You will be given two memories: a running summary of everything the robot has learned so far, and a new memory. Combine them into a single concise summary that preserves the most important information. Respond with only the summary text, no other formatting."
+            },
+            new
+            {
+                role = "user",
+                content = $"Story so far:\n{storySoFar}\n\nNew memory:\n{newMemory}"
+            }
+        }
+    };
 
+    var json = JsonConvert.SerializeObject(requestBody);
+    var content = new StringContent(json, Encoding.UTF8, "application/json");
 
+    var response = await httpClient.PostAsync("v1/chat/completions", content);
+    var responseText = await response.Content.ReadAsStringAsync();
 
+    if (response.IsSuccessStatusCode)
+    {
+        var responseObject = JObject.Parse(responseText);
+        return responseObject["choices"]![0]!["message"]!["content"]!.Value<string>()!.Trim();
+    }
 
-
+    // If summarization fails, fall back to simple concatenation
+    return $"{storySoFar} | {newMemory}";
+}
