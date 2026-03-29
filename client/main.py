@@ -5,6 +5,10 @@ import time
 import network
 import machine
 import urequests
+import sys
+from motors import MotorController
+
+motors = MotorController()
 
 def load_env(path='.env'):
     config = {}
@@ -76,20 +80,32 @@ cam.init()
 print('Camera initialized')
 
 
-data = cam.capture()
-print(f'Captured: {len(data)} bytes')
 
-response = urequests.post('http://192.168.50.2:5090/next',
-                          data=data,
-                          headers={'Content-Type': 'image/jpeg'})
-result = response.json()
-response.close()
-print(result)
+while True:
+    try:
+        data = cam.capture()
+        print(f'Captured: {len(data)} bytes')
 
-for i, color in enumerate(result['colors']):
-    np[i] = (color['r'], color['g'], color['b'])
-np.write()
-time.sleep(result['duration'])
+        response = urequests.post('http://192.168.50.2:5090/next',
+                                  data=data,
+                                  headers={'Content-Type': 'image/jpeg'})
+        result = response.json()
+        response.close()
+        print(result)
+
+        for i, color in enumerate(result['colors']):
+            np[i] = (color['r'], color['g'], color['b'])
+        np.write()
+        time.sleep(result['duration'])
+
+        motors.drive(result['leftSpeed'], result['rightSpeed'], result['motorDuration'])
+        time.sleep(1)
+    except Exception as e:
+        sys.print_exception(e)
+        motors.stop()
+        time.sleep(5)
+
+
 
 
 
