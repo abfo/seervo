@@ -1,0 +1,7 @@
+@server_HostAddress = http://localhost:5090
+
+# Visual Studio .http files do not support sending file contents as the request body.
+# Use curl to test the /next endpoint:
+#   curl -X POST -H "Content-Type: image/jpeg" --data-binary @../client/photo.jpg http://localhost:5090/next
+
+###
