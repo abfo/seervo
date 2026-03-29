@@ -4,6 +4,7 @@ from neopixel import NeoPixel
 import time
 import network
 import machine
+import urequests
 
 def load_env(path='.env'):
     config = {}
@@ -74,12 +75,21 @@ np.write()
 cam.init()
 print('Camera initialized')
 
-size = cam.capture_to_file('photo.jpg')
-print(f'Photo saved: {size} bytes')
 
+data = cam.capture()
+print(f'Captured: {len(data)} bytes')
 
-np[0] = (30, 30, 30)   
-np[1] = (30, 30, 30)  
-np[2] = (30, 30, 30)  
-np[3] = (30, 30, 30)  
+response = urequests.post('http://192.168.50.2:5090/next',
+                          data=data,
+                          headers={'Content-Type': 'image/jpeg'})
+result = response.json()
+response.close()
+print(result)
+
+for i, color in enumerate(result['colors']):
+    np[i] = (color['r'], color['g'], color['b'])
 np.write()
+time.sleep(result['duration'])
+
+
+
