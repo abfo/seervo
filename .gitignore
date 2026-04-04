@@ -4,3 +4,4 @@ client/.env
 bin/
 obj/
 /server/server/memories.json
+/server/server/latest.jpg
