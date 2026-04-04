@@ -1,6 +1,8 @@
 from machine import Pin, SPI, I2C
 import time
 
+import gc
+
 # ArduCAM SPI registers
 ARDUCHIP_TEST = 0x00
 ARDUCHIP_CAPTURE_CTL = 0x04
@@ -165,14 +167,48 @@ OV2640_RESOLUTION = {
 }
 
 
+# Default pin configuration for Maker-ESP32
+DEFAULT_CS_PIN = 5
+DEFAULT_SCK_PIN = 18
+DEFAULT_MOSI_PIN = 23
+DEFAULT_MISO_PIN = 19
+DEFAULT_SDA_PIN = 21
+DEFAULT_SCL_PIN = 22
+DEFAULT_SPI_BAUDRATE = 4000000
+DEFAULT_RESOLUTION = RES_640x480
+
+
 class ArduCAM:
 
-    def __init__(self, spi, cs_pin, i2c, resolution=RES_320x240):
+    def __init__(self, spi, cs_pin, i2c, resolution=DEFAULT_RESOLUTION):
         self._spi = spi
         self._cs = cs_pin
         self._i2c = i2c
         self._cs.value(1)
         self._resolution = resolution
+
+    @staticmethod
+    def create(resolution=DEFAULT_RESOLUTION):
+        """Create and initialize an ArduCAM with Maker-ESP32 default pins."""
+        cs = Pin(DEFAULT_CS_PIN, Pin.OUT)
+        spi = SPI(2, baudrate=DEFAULT_SPI_BAUDRATE, polarity=0, phase=0,
+                  sck=Pin(DEFAULT_SCK_PIN), mosi=Pin(DEFAULT_MOSI_PIN),
+                  miso=Pin(DEFAULT_MISO_PIN))
+        i2c = I2C(0, sda=Pin(DEFAULT_SDA_PIN), scl=Pin(DEFAULT_SCL_PIN), freq=100000)
+
+        cam = ArduCAM(spi, cs, i2c, resolution=resolution)
+
+        if not cam.test_spi():
+            raise RuntimeError('SPI test failed')
+        print('SPI: OK')
+
+        if not cam.test_i2c():
+            raise RuntimeError('OV2640 not found on I2C')
+        print('I2C: OV2640 found')
+
+        cam.init()
+        print('Camera initialized')
+        return cam
 
     # ---- SPI helpers ----
 
@@ -267,10 +303,18 @@ class ArduCAM:
         if length > 500000:
             raise RuntimeError(f'FIFO size too large: {length}')
 
-        # Burst-read the JPEG data
+        # Burst-read the JPEG data into pre-allocated buffer
+        gc.collect()
+        data = bytearray(length)
         self._cs.value(0)
         self._spi.write(bytes([ARDUCHIP_FIFO_BURST]))
-        data = self._spi.read(length)
+        mv = memoryview(data)
+        chunk_size = 4096
+        offset = 0
+        while offset < length:
+            n = min(chunk_size, length - offset)
+            self._spi.readinto(mv[offset:offset + n])
+            offset += n
         self._cs.value(1)
 
         return data

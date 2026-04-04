@@ -46,7 +46,19 @@ LEDs should now be blinking.
 
 ## Camera
 
-For this project I got the Arduino Mega256 SPI camera board (B0067). This wires into SPI/I2C. There isn't a driver for the ESP32 but camera.py manages to take photos. 
+For this project I got the Arduino Mega256 SPI camera board (B0067). This wires into SPI/I2C and 3.3v power. There isn't a driver for the ESP32, camera.py handles photo capture. 
+
+## Motors
+
+The Maker-ESP32 has four motor drivers. I'm using [these](https://www.amazon.com/dp/B0D8H89XDY?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_1) generic motors and wheels. 
+
+## Power
+
+I'm using [this](https://www.amazon.com/dp/B077Y9HNTF?th=1) battery and [these](https://www.amazon.com/dp/B0CPHJMW47) connectors for the charger and to plug into the Maker board. 
+
+## Chassis 
+
+See the Chassis folder for an OpenSCAD design and STL file. 
 
 
 

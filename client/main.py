@@ -1,14 +1,19 @@
 from machine import Pin
-from machine import SPI, I2C
-from neopixel import NeoPixel
 import time
 import network
 import machine
 import urequests
 import sys
+import gc
 from motors import MotorController
+from lights import Lights
+from camera import ArduCAM
 
-motors = MotorController()
+# Valid ranges
+COLOR_MIN, COLOR_MAX = 0, 255
+DURATION_MIN, DURATION_MAX = 0, 5
+SPEED_MIN, SPEED_MAX = -1023, 1023
+MOTOR_DURATION_MIN, MOTOR_DURATION_MAX = 0, 5000
 
 def load_env(path='.env'):
     config = {}
@@ -20,21 +25,20 @@ def load_env(path='.env'):
                 config[key.strip()] = val.strip()
     return config
 
+def clamp(val, lo, hi):
+    return max(lo, min(hi, val))
+
 env = load_env()
+motors = MotorController()
+leds = Lights()
 
-np = NeoPixel(Pin(16, Pin.OUT), 4)  # 4 onboard RGB LEDs on GPIO16
+leds.set_all(30, 0, 0)
 
-np[0] = (30, 0, 0)   
-np[1] = (30, 0, 0)  
-np[2] = (30, 0, 0)  
-np[3] = (30, 0, 0)  
-np.write()
-
+# connect to WiFi
 wlan = network.WLAN()
 wlan.active(False)
 time.sleep(1)
-np[0] = (0, 30, 0)   
-np.write()
+leds.set_pixel(0, 0, 30, 0)
 
 wlan.active(True)
 if not wlan.isconnected():
@@ -42,68 +46,54 @@ if not wlan.isconnected():
     wlan.connect(env['WIFI_SSID'], env['WIFI_PASS'])
     while not wlan.isconnected():
         machine.idle()
-    print('network config:', wlan.ipconfig('addr4'))
-    print('mac:', wlan.config('mac'))
-    
 
-np[1] = (0, 30, 0)   
-np.write()
+# WiFi connected    
+leds.set_pixel(1, 0, 30, 0)
 
-# --- Camera setup ---
-from camera import ArduCAM, RES_800x600
+# connect to camera
+cam = ArduCAM.create()
+leds.set_all(30, 30, 30)
 
-cs = Pin(5, Pin.OUT)
-spi = SPI(2, baudrate=4000000, polarity=0, phase=0,
-          sck=Pin(18), mosi=Pin(23), miso=Pin(19))
-i2c = I2C(0, sda=Pin(21), scl=Pin(22), freq=100000)
-
-cam = ArduCAM(spi, cs, i2c, resolution=RES_800x600)
-
-if cam.test_spi():
-    print('SPI: OK')
-    np[2] = (0, 30, 0)
-else:
-    print('SPI: FAIL')
-    np[2] = (30, 0, 0)
-np.write()
-
-if cam.test_i2c():
-    print('I2C: OV2640 found')
-    np[3] = (0, 30, 0)
-else:
-    print('I2C: OV2640 not found')
-    np[3] = (30, 0, 0)
-np.write()
-
-# Initialize sensor and take a photo
-cam.init()
-print('Camera initialized')
-
-
-
+# control loop
 while True:
     try:
+        gc.collect()
+        time.sleep(0.5)
         data = cam.capture()
-        print(f'Captured: {len(data)} bytes')
-
         response = urequests.post('http://192.168.50.2:5090/next',
                                   data=data,
                                   headers={'Content-Type': 'image/jpeg'})
+        del data
         result = response.json()
         response.close()
-        print(result)
 
-        for i, color in enumerate(result['colors']):
-            np[i] = (color['r'], color['g'], color['b'])
-        np.write()
-        time.sleep(result['duration'])
+        colors = [
+            {
+                'r': clamp(c['r'], COLOR_MIN, COLOR_MAX),
+                'g': clamp(c['g'], COLOR_MIN, COLOR_MAX),
+                'b': clamp(c['b'], COLOR_MIN, COLOR_MAX),
+            }
+            for c in result['colors']
+        ]
+        duration = clamp(result['duration'], DURATION_MIN, DURATION_MAX)
+        left_speed = clamp(result['leftSpeed'], SPEED_MIN, SPEED_MAX)
+        right_speed = clamp(result['rightSpeed'], SPEED_MIN, SPEED_MAX)
+        motor_duration = clamp(result['motorDuration'], MOTOR_DURATION_MIN, MOTOR_DURATION_MAX)
 
-        motors.drive(result['leftSpeed'], result['rightSpeed'], result['motorDuration'])
-        time.sleep(1)
+        leds.update(colors)
+        time.sleep(duration)
+
+        if motor_duration > 0 and (left_speed != 0 or right_speed != 0):
+            motors.drive(left_speed, right_speed, motor_duration)
+        
     except Exception as e:
-        sys.print_exception(e)
-        motors.stop()
-        time.sleep(5)
+        try:
+            sys.print_exception(e)
+            leds.set_all(60, 0, 0)
+            motors.stop()
+            time.sleep(5)
+        except:
+            pass
 
 
 

@@ -12,8 +12,8 @@ class MotorController:
     def __init__(self, freq=1000):
         self._m1a = PWM(Pin(27), freq=freq, duty=0)
         self._m1b = PWM(Pin(13), freq=freq, duty=0)
-        self._m2a = PWM(Pin(4),  freq=freq, duty=0)
-        self._m2b = PWM(Pin(2),  freq=freq, duty=0)
+        self._m2a = PWM(Pin(2),  freq=freq, duty=0)
+        self._m2b = PWM(Pin(4),  freq=freq, duty=0)
         self._m3a = PWM(Pin(17), freq=freq, duty=0)
         self._m3b = PWM(Pin(12), freq=freq, duty=0)
         self._m4a = PWM(Pin(14), freq=freq, duty=0)

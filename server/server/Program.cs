@@ -20,6 +20,7 @@ var app = builder.Build();
 
 // Load system instructions from markdown file.
 var systemInstructions = await File.ReadAllTextAsync(Path.Combine(app.Environment.ContentRootPath, "instructions.md"));
+var compactInstructions = await File.ReadAllTextAsync(Path.Combine(app.Environment.ContentRootPath, "compact.md"));
 
 // Load persisted memories.
 var memoriesPath = Path.Combine(app.Environment.ContentRootPath, "memories.json");
@@ -34,6 +35,8 @@ if (File.Exists(memoriesPath))
 
 app.MapPost("/next", async (HttpRequest request, IHttpClientFactory httpClientFactory) =>
 {
+    Debug.WriteLine("Processing request");
+
     using var httpClient = httpClientFactory.CreateClient("OpenAI");
     var stopwatch = Stopwatch.StartNew();
 
@@ -49,6 +52,29 @@ app.MapPost("/next", async (HttpRequest request, IHttpClientFactory httpClientFa
 
     ms.Position = 0;
 
+    // Validate JPEG header (SOI marker FF D8 FF)
+    if (ms.Length < 3)
+    {
+        return Results.BadRequest("Image data too short to be a valid JPEG.");
+    }
+    var header = new byte[3];
+    await ms.ReadAsync(header.AsMemory(0, 3));
+    if (header[0] != 0xFF || header[1] != 0xD8 || header[2] != 0xFF)
+    {
+        return Results.BadRequest("Invalid JPEG image data.");
+    }
+    ms.Position = 0;
+
+    // Save received image to disk
+    var imagePath = Path.Combine(app.Environment.ContentRootPath, "latest.jpg");
+    await using (var fileStream = new FileStream(imagePath, FileMode.Create, FileAccess.Write))
+    {
+        await ms.CopyToAsync(fileStream);
+    }
+    ms.Position = 0;
+
+    Debug.WriteLine($"Received {ms.Length:n0} byte image");
+
     var base64Image = Convert.ToBase64String(ms.ToArray());
 
     // Build system prompt with current memories appended
@@ -59,54 +85,31 @@ app.MapPost("/next", async (HttpRequest request, IHttpClientFactory httpClientFa
         prompt += "\n\n" + memoryList;
     }
 
-    var requestBody = new
+    var messages = new object[]
     {
-        model = "gpt-5.4",
-        messages = new[]
+        new
         {
-            new
+            role = "system",
+            content = new object[]
             {
-                role = "system",
-                content = new object[]
-                {
-                    new { type = "text", text = prompt }
-                }
-            },
-            new
+                new { type = "input_text", text = prompt }
+            }
+        },
+        new
+        {
+            role = "user",
+            content = new object[]
             {
-                role = "user",
-                content = new object[]
-                {
-                    new { type = "image_url", image_url = new { url = $"data:image/jpeg;base64,{base64Image}" } }
-                }
+                new { type = "input_image", image_url = $"data:image/jpeg;base64,{base64Image}" }
             }
         }
     };
 
-    string jsonBody = JsonConvert.SerializeObject(requestBody);
-    var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+    var (responseText, success) = await ChatCompleteAsync(httpClient, "gpt-5.4", messages, "medium");
 
-    HttpResponseMessage httpResponse = await httpClient.PostAsync("v1/chat/completions", content);
-    string openAiResponse = await httpResponse.Content.ReadAsStringAsync();
-
-    if (httpResponse.IsSuccessStatusCode)
+    if (success)
     {
-        JObject responseObject = JObject.Parse(openAiResponse);
-        JArray choices = responseObject["choices"] as JArray;
-        JObject first = choices[0] as JObject;
-        string responseText = first["message"]["content"].Value<string>();
-
-        // Strip markdown code fences if present
-        responseText = responseText.Trim();
-        if (responseText.StartsWith("```"))
-        {
-            int firstNewline = responseText.IndexOf('\n');
-            if (firstNewline >= 0)
-                responseText = responseText[(firstNewline + 1)..];
-            if (responseText.EndsWith("```"))
-                responseText = responseText[..^3];
-            responseText = responseText.Trim();
-        }
+        Debug.WriteLine($"OpenAI response received in {stopwatch.ElapsedMilliseconds} ms: {responseText}");
 
         var jsonResponse = JObject.Parse(responseText);
 
@@ -117,13 +120,15 @@ app.MapPost("/next", async (HttpRequest request, IHttpClientFactory httpClientFa
             var memory = memoryToken.Value<string>();
             if (!string.IsNullOrWhiteSpace(memory))
             {
-                memories.Add(memory);
-                if (memories.Count > 20)
+                memories.Add($"{DateTime.Now:yyyy-MM-dd: HH:mm:ss} - {memory}");
+                if (memories.Count > 10)
                 {
                     // Compact: summarize the first two memories into a rolling summary
-                    var summary = await CompactMemoriesAsync(httpClient, memories[0], memories[1]);
+                    var summary = await CompactMemoriesAsync(httpClient, compactInstructions, memories[0], memories[1]);
                     memories.RemoveAt(0); // remove old summary
                     memories[0] = summary; // replace second entry with new combined summary
+
+                    Debug.WriteLine("Memories compacted into summary: " + summary);
                 }
                 await File.WriteAllTextAsync(memoriesPath, JsonConvert.SerializeObject(memories, Formatting.Indented));
             }
@@ -139,38 +144,87 @@ app.MapPost("/next", async (HttpRequest request, IHttpClientFactory httpClientFa
 
 app.Run();
 
-static async Task<string> CompactMemoriesAsync(HttpClient httpClient, string storySoFar, string newMemory)
+static async Task<string> CompactMemoriesAsync(HttpClient httpClient, string compactInstructions, string storySoFar, string newMemory)
 {
-    var requestBody = new
+    var messages = new object[]
     {
-        model = "gpt-5.4",
-        messages = new[]
+        new
         {
-            new
-            {
-                role = "system",
-                content = "You are a memory compactor for a robot controller. You will be given two memories: a running summary of everything the robot has learned so far, and a new memory. Combine them into a single concise summary that preserves the most important information. Respond with only the summary text, no other formatting."
-            },
-            new
-            {
-                role = "user",
-                content = $"Story so far:\n{storySoFar}\n\nNew memory:\n{newMemory}"
-            }
+            role = "system",
+            content = compactInstructions
+        },
+        new
+        {
+            role = "user",
+            content = $"Story so far:\n{storySoFar}\n\nNew memory:\n{newMemory}"
         }
     };
 
+    var (responseText, success) = await ChatCompleteAsync(httpClient, "gpt-5.4", messages, "low");
+
+    // If summarization fails, fall back to simple concatenation
+    return success ? responseText : $"{storySoFar} | {newMemory}";
+}
+
+static async Task<(string Content, bool Success)> ChatCompleteAsync(HttpClient httpClient, string model, object[] messages, string reasoningEffort)
+{
+    var requestBody = new
+    {
+        model,
+        input = messages,
+        reasoning = new { effort = reasoningEffort }
+    };
     var json = JsonConvert.SerializeObject(requestBody);
     var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-    var response = await httpClient.PostAsync("v1/chat/completions", content);
-    var responseText = await response.Content.ReadAsStringAsync();
+    var response = await httpClient.PostAsync("v1/responses", content);
+    var responseBody = await response.Content.ReadAsStringAsync();
 
-    if (response.IsSuccessStatusCode)
+    if (!response.IsSuccessStatusCode)
     {
-        var responseObject = JObject.Parse(responseText);
-        return responseObject["choices"]![0]!["message"]!["content"]!.Value<string>()!.Trim();
+        Debug.WriteLine($"OpenAI API error: {response.StatusCode} - {responseBody}");
+        return (responseBody, false);
     }
 
-    // If summarization fails, fall back to simple concatenation
-    return $"{storySoFar} | {newMemory}";
+    var responseObject = JObject.Parse(responseBody);
+
+    // Extract text from the first message output content block
+    var output = responseObject["output"] as JArray;
+    string? responseText = null;
+    foreach (var item in output!)
+    {
+        if (item["type"]?.Value<string>() == "message")
+        {
+            var contentArray = item["content"] as JArray;
+            foreach (var block in contentArray!)
+            {
+                if (block["type"]?.Value<string>() == "output_text")
+                {
+                    responseText = block["text"]?.Value<string>();
+                    break;
+                }
+            }
+            if (responseText != null) break;
+        }
+    }
+
+    if (responseText == null)
+    {
+        Debug.WriteLine($"OpenAI API error: no text content in response - {responseBody}");
+        return (responseBody, false);
+    }
+
+    // Strip markdown code fences if present
+    responseText = responseText.Trim();
+    if (responseText.StartsWith("```"))
+    {
+        int firstNewline = responseText.IndexOf('\n');
+        if (firstNewline >= 0)
+            responseText = responseText[(firstNewline + 1)..];
+        if (responseText.EndsWith("```"))
+            responseText = responseText[..^3];
+        responseText = responseText.Trim();
+    }
+
+    return (responseText, true);
 }
