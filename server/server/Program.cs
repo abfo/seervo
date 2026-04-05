@@ -124,7 +124,7 @@ app.MapPost("/next", async (HttpRequest request, IHttpClientFactory httpClientFa
             if (!string.IsNullOrWhiteSpace(memory))
             {
                 memories.Add($"{DateTime.Now:yyyy-MM-dd: HH:mm:ss} - {memory}");
-                if (memories.Count > 10)
+                if (memories.Count > 5)
                 {
                     // Compact: summarize the first two memories into a rolling summary
                     var summary = await CompactMemoriesAsync(httpClient, compactInstructions, memories[0], memories[1]);
