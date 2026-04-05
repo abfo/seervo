@@ -2,6 +2,8 @@
 
 An LLM powered ESP32 robot. This is an experiment in embodied AI, with a vision model connected to a camera and deciding what to do next. 
 
+![Seervo](/seervo-small.jpg)
+
 ## Architecture 
 
 For this project I wanted a server to make it easy to see what the robot is doing and to iterate on the prompts and control logic. The server folder has a very simple ASP.NET Core web API. The robot posts an image to the API and gets JSON with the next action to take. I run this in VS Code on Windows but it should run anywhere .NET 10 Core is supported. 
