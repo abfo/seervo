@@ -37,6 +37,8 @@ app.MapPost("/next", async (HttpRequest request, IHttpClientFactory httpClientFa
 {
     Debug.WriteLine("Processing request");
 
+    var distance = request.Query.TryGetValue("distance", out var distanceValues) ? distanceValues.ToString() : null;
+
     using var httpClient = httpClientFactory.CreateClient("OpenAI");
     var stopwatch = Stopwatch.StartNew();
 
@@ -100,7 +102,8 @@ app.MapPost("/next", async (HttpRequest request, IHttpClientFactory httpClientFa
             role = "user",
             content = new object[]
             {
-                new { type = "input_image", image_url = $"data:image/jpeg;base64,{base64Image}" }
+                new { type = "input_image", image_url = $"data:image/jpeg;base64,{base64Image}" },
+                new { type = "input_text", text = $"Meters clear directly forward: {distance}" }   
             }
         }
     };

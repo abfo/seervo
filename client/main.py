@@ -2,6 +2,7 @@ from machine import Pin
 import time
 import network
 import machine
+from sonar import Sonar
 import urequests
 import sys
 import gc
@@ -31,6 +32,7 @@ def clamp(val, lo, hi):
 env = load_env()
 motors = MotorController()
 leds = Lights()
+sensor = Sonar()
 
 leds.set_all(30, 0, 0)
 
@@ -60,7 +62,9 @@ while True:
         gc.collect()
         time.sleep(0.5)
         data = cam.capture()
-        response = urequests.post('http://192.168.50.2:5090/next',
+        distance = round(sensor.distance_m(), 2)
+        url = 'http://192.168.50.2:5090/next?distance={}'.format(distance)
+        response = urequests.post(url,
                                   data=data,
                                   headers={'Content-Type': 'image/jpeg'})
         del data
