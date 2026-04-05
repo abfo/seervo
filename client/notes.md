@@ -52,6 +52,18 @@ For this project I got the Arduino Mega256 SPI camera board (B0067). This wires 
 
 The Maker-ESP32 has four motor drivers. I'm using [these](https://www.amazon.com/dp/B0D8H89XDY?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_1) generic motors and wheels. 
 
+## Distance
+
+A HC-SR04 ultrasonic range detector is wired to gnd / 5v / trigger (gpio 25) / echo (gpio 26). Echo need a voltage divider - echo pin to 1kΩ resistor and then from there one wire to gpio 26 and one to ground via a 2kΩ resistor.
+
+```
+Echo pin ──── 1kΩ ────┬──── GPIO 26
+                       │
+                      2kΩ
+                       │
+                      GND
+```
+
 ## Power
 
 I'm using [this](https://www.amazon.com/dp/B077Y9HNTF?th=1) battery and [these](https://www.amazon.com/dp/B0CPHJMW47) connectors for the charger and to plug into the Maker board. 

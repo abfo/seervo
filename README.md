@@ -1,6 +1,6 @@
 # Seervo
 
-An LLM powered ESP32 robot. This is an experiment in embodied AI, with a vision model connected to a camera and deciding what to do next. For more information check out this [video](https://youtu.be/qIrNDQmVw1A) of the robot in action, and my [blog post](https://ithoughthecamewithyou.com/post/seervo-an-llm-powered-robot) about this project.
+An LLM powered ESP32 robot. This is an experiment in embodied AI, with a vision model connected to a camera and distance detector and deciding what to do next. For more information check out this [video](https://youtu.be/qIrNDQmVw1A) of the robot in action, and my [blog post](https://ithoughthecamewithyou.com/post/seervo-an-llm-powered-robot) about this project.
 
 ![Seervo](/seervo-small.jpg)
 
@@ -8,9 +8,9 @@ An LLM powered ESP32 robot. This is an experiment in embodied AI, with a vision 
 
 For this project I wanted a server to make it easy to see what the robot is doing and to iterate on the prompts and control logic. The server folder has a very simple ASP.NET Core web API. The robot posts an image to the API and gets JSON with the next action to take. I run this in VS Code on Windows but it should run anywhere .NET 10 Core is supported. 
 
-The client folder contains [MicroPython](https://micropython.org/) code to run the robot. There are simple drivers for the camera, motors and LEDs and a control loop that calls the API and executes the JSON instructions. 
+The client folder contains [MicroPython](https://micropython.org/) code to run the robot. There are simple drivers for the camera, motors, sonar, and LEDs and a control loop that calls the API and executes the JSON instructions. 
 
-Lastly the chassis folder contains OpenSCAD and STL files to 3D print a basic chassis that holds the battery, controller, motors and camera. 
+Lastly the chassis folder contains OpenSCAD and STL files to 3D print a basic chassis that holds the battery, controller, motors and camera. There is also a mounting bracket for a HC-SR04 ultrasonic range detector. 
 
 ## Getting Started
 
@@ -25,8 +25,6 @@ mprempte cp camera.py :camera.py
 Start the server up and switch on the robot! You'll need an OpenAI API key as an environment variable. 
 
 ## Tips and Ideas
-
-I'm planning to add an ultrasonic range detector to help the robot figure out how much space it has to work with. The LLM sometimes gets nervous about objects that are quite far away. 
 
 My version is supposed to avoid pets and entertain humans. Edit Instructions.md to give the robot a different mission. 
 
