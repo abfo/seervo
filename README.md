@@ -1,6 +1,6 @@
 # Seervo
 
-An LLM powered ESP32 robot. This is an experiment in embodied AI, with a vision model connected to a camera and deciding what to do next. 
+An LLM powered ESP32 robot. This is an experiment in embodied AI, with a vision model connected to a camera and deciding what to do next. For more information check out this [video](https://youtu.be/qIrNDQmVw1A) of the robot in action, and my [blog post](https://ithoughthecamewithyou.com/post/seervo-an-llm-powered-robot) about this project.
 
 ![Seervo](/seervo-small.jpg)
 
